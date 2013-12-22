@@ -196,6 +196,8 @@ void * thread(void * _args) {
 	int res_quantity = args->res_quantity;
 	free(args);
 
+	pthread_mutex_lock(&mutex);
+
 	fprintf(stderr, "Watek dla procesow %d i %d zostal utworzony (typ x ile: %dx%d)\n", pid1, pid2, res_type, res_quantity);
 
 	/* Warunek na czekanie */
@@ -209,6 +211,51 @@ void * thread(void * _args) {
 			--waiting_for_resource_count[res_type];
 		}
 	}
+
+	resources_count[res_type] -= res_quantity;
+
+	printf("Watek %d przydziela %d zasobow %d klientom %d %d, pozostalo %d zasobow.\n",
+		(int) pthread_self(), res_quantity, res_type, pid1, pid2, resources_count[res_type]);
+
+	pthread_mutex_unlock(&mutex);
+
+	/* Wysyłanie wiadomości o przydzieleniu zasobow */
+
+	Msg_permission m1 = {
+		(long) pid1,
+		pid2
+	};
+
+	Msg_permission m2 = {
+		(long) pid2,
+		pid1
+	};
+
+	if (msgsnd(permission_msq_id, &m1, MSG_PERMISSION_SIZE, 0) == -1)
+		system_error("Blad podczas wysylania pozwolenia na zajecie zasobu.");
+
+	if (msgsnd(permission_msq_id, &m2, MSG_PERMISSION_SIZE, 0) == -1)
+		system_error("Blad podczas wysylania pozwolenia na zajecie zasobu.");
+
+	/* Zasoby przydzielone, przechodzimy do fazy oczekiwania na ich zwrot */
+
+	Msg_release mr;
+
+	if (msgrcv(release_msq_id, &mr, MSG_RELEASE_SIZE, (long) pid1, 0) <= 0)
+		system_error("Nie powiodlo sie odczytanie wiadomosci o zwolnieniu zasobow.");
+
+	if (msgrcv(release_msq_id, &mr, MSG_RELEASE_SIZE, (long) pid2, 0) <= 0)
+		system_error("Nie powiodlo sie odczytanie wiadomosci o zwolnieniu zasobow.");
+
+	/* Zasoby zwolnione */
+
+	pthread_mutex_lock(&mutex);
+
+	resources_count[res_type] += res_quantity;
+
+    pthread_cond_signal(&waiting_for_resource_cond[res_type]);
+
+	pthread_mutex_unlock(&mutex);
 
 	return (void *) NULL;
 }
