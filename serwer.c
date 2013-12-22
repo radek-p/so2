@@ -155,8 +155,11 @@ void init_server() {
 
 	for (int i = 0; i < K; ++i) {
 		resources_count[i] = N;
-		waiting_for_partner_pid[i] = 0;
+		waiting_for_resource_count[i]   = 0;
+		waiting_for_partner_pid[i]      = 0;
 		waiting_for_partner_quantity[i] = 0;
+		if (pthread_cond_init(&waiting_for_resource_cond[i], 0) != 0)
+			syserr("Blad przy inicjalizacji zmiennej warunkowej");
 	}
 
 	/* Tworzenie kolejek komunikatow */
@@ -196,7 +199,8 @@ void * thread(void * _args) {
 	int res_quantity = args->res_quantity;
 	free(args);
 
-	pthread_mutex_lock(&mutex);
+	if (pthread_mutex_lock(&mutex) != 0)
+		system_error("Cannot lock mutex.");
 
 	fprintf(stderr, "Watek dla procesow %d i %d zostal utworzony (typ x ile: %dx%d)\n", pid1, pid2, res_type, res_quantity);
 
@@ -210,6 +214,7 @@ void * thread(void * _args) {
 
 			--waiting_for_resource_count[res_type];
 		}
+
 	}
 
 	resources_count[res_type] -= res_quantity;
@@ -224,7 +229,8 @@ void * thread(void * _args) {
 		resources_count[res_type]
 	);
 
-	pthread_mutex_unlock(&mutex);
+	if (pthread_mutex_unlock(&mutex) != 0)
+		system_error("Cannot unlock mutex.");
 
 	/* Wysylanie wiadomosci o przydzieleniu zasobow */
 
@@ -256,13 +262,15 @@ void * thread(void * _args) {
 
 	/* Zasoby zwolnione */
 
-	pthread_mutex_lock(&mutex);
+	if (pthread_mutex_lock(&mutex) != 0)
+		system_error("Cannot lock mutex.");
 
 	resources_count[res_type] += res_quantity;
 
     pthread_cond_signal(&waiting_for_resource_cond[res_type]);
 
-	pthread_mutex_unlock(&mutex);
+	if (pthread_mutex_unlock(&mutex) != 0)
+		system_error("Cannot unlock mutex.");
 
 	return 0;
 }
