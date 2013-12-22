@@ -226,7 +226,7 @@ void * thread(void * _args) {
 
 	pthread_mutex_unlock(&mutex);
 
-	/* Wysyłanie wiadomości o przydzieleniu zasobow */
+	/* Wysylanie wiadomosci o przydzieleniu zasobow */
 
 	Msg_permission m1 = {
 		(long) pid1,
@@ -264,7 +264,7 @@ void * thread(void * _args) {
 
 	pthread_mutex_unlock(&mutex);
 
-	return (void *) NULL;
+	return 0;
 }
 
 /* Funkcja main i glowna petla serwera ============================ */
