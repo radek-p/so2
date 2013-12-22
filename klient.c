@@ -50,6 +50,8 @@ void process_args(int argc, char const *argv[]) {
 	if (!(1 <= k && k <= 99))
 		fatal("Niepoprawny typ zasobu (k): %d", k);
 
+	k--;
+
 	if (sscanf(argv[2], "%d", &n) < 1)
 		fatal("Nie udalo sie wczytac liczby zasobow (n).");
 
@@ -92,8 +94,6 @@ int main(int argc, char const *argv[]) {
 
 	Msg_release m3 = {
 		((long) getpid()), /* typ wiadomosci: PID klienta */
-		k,                 /* typ zasobu                  */
-		n                  /* liczba zasobow              */
 	};
 
 	if (msgsnd(release_msq_id, &m3, MSG_RELEASE_SIZE, 0) == -1)

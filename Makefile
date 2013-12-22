@@ -6,7 +6,7 @@
 
 CC          := gcc
 CFLAGS      := -Wall -Wextra -std=c99 -pedantic -D_SVID_SOURCE -pthread
-LDFLAGS     := -Wall -Wextra -std=c99 -pedantic
+LDFLAGS     := -Wall -Wextra -std=c99 -pedantic -pthread
 
 # pliki zrodlowe
 SOURCES     := $(wildcard *.c)

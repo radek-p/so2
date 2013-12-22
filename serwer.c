@@ -10,27 +10,52 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
+#include <pthread.h>
 
 #include "message.h"
 #include "err.h"
 
+/* Struktura przekazywana nowo tworzonemu watkowi: ================ */
+
+typedef struct {
+	pid_t pid1;
+	pid_t pid2;
+	int res_type;
+	int res_quantity;
+} ThreadArgs;
+
+typedef enum {
+	DEFAULT,
+	CLOSING
+} State;
+
 /* Zmienne globalne: ============================================== */
 
 int K, N;
+State state;
 
 /* Identyfikatory kolejek */
 int request_msq_id;
 int release_msq_id;
 int permission_msq_id;
 
+/* Tablice rozmiaru K */
+int   * resources_count;
+/* tablice zapisujace informacje o procesie zadajacym *
+ * zasobow danego typu czekajacym na partnera.        */
+pid_t * waiting_pid;
+int   * waiting_quantity;
 
-int * resources_count; /* Tablica o rozmiarze K (malloc) */
+/* Mutex */
+pthread_mutex_t mutex;
 
 /* Procedury pomocnicze: ========================================== */
 
 /* Zwalnia zaalokowana pamiec */
 void free_memory() {
 	free(resources_count);
+	free(waiting_pid);
+	free(waiting_quantity);
 }
 
 /* Usuwa kolejki komunikatow */
@@ -54,8 +79,8 @@ void clean_up() {
 
 /* Zwalnia zasoby i konczy dzialanie serwera pod wplywam sygnalu */
 void exit_server(int sig) {
+	state = CLOSING;
 	fprintf(stderr, "Serwer konczy prace wskutek sygnalu %d.\n", sig);
-
 	clean_up();
 	exit(0);
 }
@@ -96,10 +121,29 @@ void check_args(int argc, char const * argv[]) {
 /* Inicjalizuje zmienne globalne przed rozpoczeciem nasluchiwania */
 void init_server() {
 
+	state = DEFAULT;
+
+	/* Inicjalizacja mutexow i zmiennych warunkowych */
+
+	if (pthread_mutex_init(&mutex, 0) != 0)
+		syserr("Nie udalo sie zainicjalizowac mutexa.");
+
 	/* Alokowanie pamieci */
 
 	if ((resources_count = malloc(sizeof(int) * K)) == NULL)
 		syserr("Nie udalo sie zaalokowac tablicy 'resources_count' rozmiaru K");
+
+	if ((waiting_pid = malloc(sizeof(pid_t) * K)) == NULL)
+		syserr("Nie udalo sie zaalokowac tablicy 'waiting_pid' rozmiaru K");
+
+	if ((waiting_quantity = malloc(sizeof(int) * K)) == NULL)
+		syserr("Nie udalo sie zaalokowac tablicy 'waiting_quantity' rozmiaru K");
+
+	for (int i = 0; i < K; ++i) {
+		resources_count[i] = N;
+		waiting_pid[i] = 0;
+		waiting_quantity[i] = 0;
+	}
 
 	/* Tworzenie kolejek komunikatow */
 	fprintf(stderr, "%s\n", "Serwer tworzy kolejki.");
@@ -128,6 +172,21 @@ void init_server() {
 		system_error("signal");
 }
 
+/* Watek obslugujacy pare klientow ================================ */
+
+void * thread(void * _args) {
+	ThreadArgs * args = (ThreadArgs *) _args;
+	pid_t pid1 = args->pid1;
+	pid_t pid2 = args->pid2;
+	int res_type = args->res_type;
+	int res_quantity = args->res_quantity;
+	free(args);
+
+	fprintf(stderr, "Watek dla procesow %d i %d zostal utworzony (typ x ile: %dx%d)\n", pid1, pid2, res_type, res_quantity);
+
+	return (void *) NULL;
+}
+
 /* Funkcja main i glowna petla serwera ============================ */
 
 int main(int argc, char const *argv[]) {
@@ -138,6 +197,15 @@ int main(int argc, char const *argv[]) {
 	/* Serwer odczytuje kolejne zadania i tworzy *
 	 * dla kazdego z nich nowy watek.            */
 	Msg_request m1;
+	ThreadArgs * args;
+	pthread_t thread_descr;
+	pthread_attr_t thread_attr;
+
+	if (pthread_attr_init (&thread_attr) != 0)
+		system_error("Error while initializing thread_attr");
+
+	if (pthread_attr_setdetachstate(&thread_attr, PTHREAD_CREATE_DETACHED) != 0)
+		system_error("Error while setting detach state to PTHREAD_CREATE_DETACHED.");
 
 	for(;;) {
 		fprintf(stderr, "Czekam na wiadomosc.\n");
@@ -146,8 +214,35 @@ int main(int argc, char const *argv[]) {
 			system_error("Nie powiodlo sie odbieranie wiadomosci.");
 
 		fprintf(stderr, "Otrzymano wiadomosc PID: %ld, typ: %d, ile: %d\n", m1.msg_type, m1.res_type, m1.res_quantity);
+		/* Mutex nie jest potrzebny, tylko watek glowny *
+		 * bedzie odwolywal sie do tych zmiennych       */
 
-		/* Tworzenie watku */
+		/* Jesli nie odebrano jeszcze wiadomosci od klienta *
+		 * zadajacego okreslonego typu zasobow              */
+		if (!(0 <= m1.res_type && m1.res_type < K))
+			fatal_error("Odebrano niepoprawny res_type.");
+
+		if (waiting_pid[m1.res_type] == 0) {
+			waiting_pid[m1.res_type] = (pid_t) m1.msg_type;
+			waiting_quantity[m1.res_type] = m1.res_quantity;
+		}
+		else {
+			fprintf(stderr, "PID1: %d, PID2: %d, ile: %d\n", waiting_pid[m1.res_type], (pid_t) m1.msg_type, waiting_quantity[m1.res_type] + m1.res_quantity);
+			args = malloc(sizeof(ThreadArgs));
+			args->pid1 = waiting_pid[m1.res_type];
+			args->pid2 = (pid_t) m1.msg_type;
+			args->res_type = m1.res_type;
+			args->res_quantity = m1.res_quantity + waiting_quantity[m1.res_type];
+
+			/* Tworzenie watku */
+
+			if (pthread_create(&thread_descr, &thread_attr, thread, args) != 0)
+				system_error("Blad podczas tworzenia watku.");
+
+			/* Zwalniam miejsce w tablicy czekajacych na partnera. */
+			waiting_pid[m1.res_type] = 0;
+		}
+
 	}
 
 	return 0;

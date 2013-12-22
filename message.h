@@ -29,8 +29,6 @@ typedef struct {
 typedef struct {
 
 	long  msg_type;     /* PID zwalniajacego      */
-	int   res_type;     /* typ zasobu (1..K)      */
-	int   res_quantity; /* ilość                  */
 
 } Msg_release;
 
