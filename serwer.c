@@ -214,8 +214,15 @@ void * thread(void * _args) {
 
 	resources_count[res_type] -= res_quantity;
 
-	printf("Watek %d przydziela %d zasobow %d klientom %d %d, pozostalo %d zasobow.\n",
-		(int) pthread_self(), res_quantity, res_type, pid1, pid2, resources_count[res_type]);
+	printf(
+		"Watek %ld przydziela %d zasobow %d klientom %d %d, pozostalo %d zasobow.\n",
+		(long) pthread_self(),
+		res_quantity,
+		res_type,
+		pid1,
+		pid2,
+		resources_count[res_type]
+	);
 
 	pthread_mutex_unlock(&mutex);
 

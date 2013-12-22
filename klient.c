@@ -55,7 +55,7 @@ void process_args(int argc, char const *argv[]) {
 	if (sscanf(argv[2], "%d", &n) < 1)
 		fatal("Nie udalo sie wczytac liczby zasobow (n).");
 
-	if (!(2 <= n && n <= 9999))
+	if (!(1 <= n && n <= 4999))
 		fatal("Niepoprawna liczba zasobow danego typu (n): %d", n);
 
 	if (sscanf(argv[3], "%d", &s) < 1)
@@ -87,7 +87,8 @@ int main(int argc, char const *argv[]) {
 	if (msgrcv(permission_msq_id, &m2, MSG_PERMISSION_SIZE, (long) getpid(), 0) <= 0)
 		syserr("Nie powiodlo sie odczytanie wiadomosci.");
 
-	printf("%d %d %d %d", k, n, getpid(), m2.partner_pid);
+	printf("%d %d %d %d\n", k, n, getpid(), m2.partner_pid);
+	fflush(stdout);
 
 	/* Usypiam na s sekund */
 	sleep(s);
