@@ -200,7 +200,7 @@ void * thread(void * _args) {
 	free(args);
 
 	if (pthread_mutex_lock(&mutex) != 0)
-		system_error("Cannot lock mutex.");
+		system_error("Nie mozna zablokowac mutexa.");
 
 	fprintf(stderr, "Watek dla procesow %d i %d zostal utworzony (typ x ile: %dx%d)\n", pid1, pid2, res_type, res_quantity);
 
@@ -223,14 +223,14 @@ void * thread(void * _args) {
 		"Watek %ld przydziela %d zasobow %d klientom %d %d, pozostalo %d zasobow.\n",
 		(long) pthread_self(),
 		res_quantity,
-		res_type,
+		res_type + 1,
 		pid1,
 		pid2,
 		resources_count[res_type]
 	);
 
 	if (pthread_mutex_unlock(&mutex) != 0)
-		system_error("Cannot unlock mutex.");
+		system_error("Nie mozna odblokowac mutexa.");
 
 	/* Wysylanie wiadomosci o przydzieleniu zasobow */
 
@@ -263,14 +263,15 @@ void * thread(void * _args) {
 	/* Zasoby zwolnione */
 
 	if (pthread_mutex_lock(&mutex) != 0)
-		system_error("Cannot lock mutex.");
+		system_error("Nie mozna zablokowac mutexa.");
 
 	resources_count[res_type] += res_quantity;
 
-    pthread_cond_signal(&waiting_for_resource_cond[res_type]);
+    if (pthread_cond_signal(&waiting_for_resource_cond[res_type]) != 0)
+    	system_error("Nie mozna wyslac sygnalu.");
 
 	if (pthread_mutex_unlock(&mutex) != 0)
-		system_error("Cannot unlock mutex.");
+		system_error("Nie mozna odblokowac mutexa.");
 
 	return 0;
 }
