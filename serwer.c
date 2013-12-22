@@ -31,6 +31,7 @@ typedef enum {
 
 /* Zmienne globalne: ============================================== */
 
+/* Stan serwera */
 int K, N;
 State state;
 
@@ -41,21 +42,28 @@ int permission_msq_id;
 
 /* Tablice rozmiaru K */
 int   * resources_count;
+int   * waiting_for_resource_count;
+
 /* tablice zapisujace informacje o procesie zadajacym *
  * zasobow danego typu czekajacym na partnera.        */
-pid_t * waiting_pid;
-int   * waiting_quantity;
+pid_t * waiting_for_partner_pid;
+int   * waiting_for_partner_quantity;
 
 /* Mutex */
 pthread_mutex_t mutex;
+
+/* Zmienne warunkowe */
+pthread_cond_t * waiting_for_resource_cond;
 
 /* Procedury pomocnicze: ========================================== */
 
 /* Zwalnia zaalokowana pamiec */
 void free_memory() {
 	free(resources_count);
-	free(waiting_pid);
-	free(waiting_quantity);
+	free(waiting_for_resource_count);
+	free(waiting_for_partner_pid);
+	free(waiting_for_partner_quantity);
+	free(waiting_for_resource_cond);
 }
 
 /* Usuwa kolejki komunikatow */
@@ -133,16 +141,22 @@ void init_server() {
 	if ((resources_count = malloc(sizeof(int) * K)) == NULL)
 		syserr("Nie udalo sie zaalokowac tablicy 'resources_count' rozmiaru K");
 
-	if ((waiting_pid = malloc(sizeof(pid_t) * K)) == NULL)
-		syserr("Nie udalo sie zaalokowac tablicy 'waiting_pid' rozmiaru K");
+	if ((waiting_for_partner_pid = malloc(sizeof(pid_t) * K)) == NULL)
+		syserr("Nie udalo sie zaalokowac tablicy 'waiting_for_partner_pid' rozmiaru K");
 
-	if ((waiting_quantity = malloc(sizeof(int) * K)) == NULL)
-		syserr("Nie udalo sie zaalokowac tablicy 'waiting_quantity' rozmiaru K");
+	if ((waiting_for_partner_quantity = malloc(sizeof(int) * K)) == NULL)
+		syserr("Nie udalo sie zaalokowac tablicy 'waiting_for_partner_quantity' rozmiaru K");
+
+	if ((waiting_for_resource_count = malloc(sizeof(int) * K)) == NULL)
+		syserr("Nie udalo sie zaalokowac tablicy 'waiting_for_resource_count' rozmiaru K");
+
+	if ((waiting_for_resource_cond = malloc(sizeof(pthread_cond_t) * K)) == NULL)
+		syserr("Nie udalo sie zaalokowac tablicy 'waiting_for_resource_cond' rozmiaru K");
 
 	for (int i = 0; i < K; ++i) {
 		resources_count[i] = N;
-		waiting_pid[i] = 0;
-		waiting_quantity[i] = 0;
+		waiting_for_partner_pid[i] = 0;
+		waiting_for_partner_quantity[i] = 0;
 	}
 
 	/* Tworzenie kolejek komunikatow */
@@ -184,6 +198,18 @@ void * thread(void * _args) {
 
 	fprintf(stderr, "Watek dla procesow %d i %d zostal utworzony (typ x ile: %dx%d)\n", pid1, pid2, res_type, res_quantity);
 
+	/* Warunek na czekanie */
+	if((res_quantity > resources_count[res_type]) || (waiting_for_resource_count[res_type] > 0)) {
+
+		while(res_quantity > resources_count[res_type]) {
+			++waiting_for_resource_count[res_type];
+
+			pthread_cond_wait(&waiting_for_resource_cond[res_type], &mutex);
+
+			--waiting_for_resource_count[res_type];
+		}
+	}
+
 	return (void *) NULL;
 }
 
@@ -222,17 +248,17 @@ int main(int argc, char const *argv[]) {
 		if (!(0 <= m1.res_type && m1.res_type < K))
 			fatal_error("Odebrano niepoprawny res_type.");
 
-		if (waiting_pid[m1.res_type] == 0) {
-			waiting_pid[m1.res_type] = (pid_t) m1.msg_type;
-			waiting_quantity[m1.res_type] = m1.res_quantity;
+		if (waiting_for_partner_pid[m1.res_type] == 0) {
+			waiting_for_partner_pid[m1.res_type] = (pid_t) m1.msg_type;
+			waiting_for_partner_quantity[m1.res_type] = m1.res_quantity;
 		}
 		else {
-			fprintf(stderr, "PID1: %d, PID2: %d, ile: %d\n", waiting_pid[m1.res_type], (pid_t) m1.msg_type, waiting_quantity[m1.res_type] + m1.res_quantity);
+			fprintf(stderr, "PID1: %d, PID2: %d, ile: %d\n", waiting_for_partner_pid[m1.res_type], (pid_t) m1.msg_type, waiting_for_partner_quantity[m1.res_type] + m1.res_quantity);
 			args = malloc(sizeof(ThreadArgs));
-			args->pid1 = waiting_pid[m1.res_type];
+			args->pid1 = waiting_for_partner_pid[m1.res_type];
 			args->pid2 = (pid_t) m1.msg_type;
 			args->res_type = m1.res_type;
-			args->res_quantity = m1.res_quantity + waiting_quantity[m1.res_type];
+			args->res_quantity = m1.res_quantity + waiting_for_partner_quantity[m1.res_type];
 
 			/* Tworzenie watku */
 
@@ -240,7 +266,7 @@ int main(int argc, char const *argv[]) {
 				system_error("Blad podczas tworzenia watku.");
 
 			/* Zwalniam miejsce w tablicy czekajacych na partnera. */
-			waiting_pid[m1.res_type] = 0;
+			waiting_for_partner_pid[m1.res_type] = 0;
 		}
 
 	}
