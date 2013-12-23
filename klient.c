@@ -80,8 +80,6 @@ int main(int argc, char const *argv[]) {
 
 	Msg_permission m2;
 
-	fprintf(stderr, "Wyslalem wiadomosc. Czekam na odpowiedz.\n");
-
 	if (msgrcv(permission_msq_id, &m2, MSG_PERMISSION_SIZE, (long) getpid(), 0) <= 0)
 		syserr("Nie powiodlo sie odczytanie wiadomosci.");
 

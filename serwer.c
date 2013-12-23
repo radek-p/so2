@@ -43,6 +43,7 @@ int permission_msq_id;
 /* Tablice rozmiaru K */
 int   * resources_count;
 int   * waiting_for_resource_count;
+int   * first_waiting_count;
 
 /* tablice zapisujace informacje o procesie zadajacym *
  * zasobow danego typu czekajacym na partnera.        */
@@ -54,6 +55,7 @@ pthread_mutex_t mutex;
 
 /* Zmienne warunkowe */
 pthread_cond_t * waiting_for_resource_cond;
+pthread_cond_t * first_waiting_cond;
 
 /* Procedury pomocnicze: ========================================== */
 
@@ -64,6 +66,8 @@ void free_memory() {
 	free(waiting_for_partner_pid);
 	free(waiting_for_partner_quantity);
 	free(waiting_for_resource_cond);
+	free(first_waiting_count);
+	free(first_waiting_cond);
 }
 
 /* Usuwa kolejki komunikatow */
@@ -150,43 +154,51 @@ void init_server() {
 	if ((waiting_for_resource_count = malloc(sizeof(int) * K)) == NULL)
 		syserr("Nie udalo sie zaalokowac tablicy 'waiting_for_resource_count' rozmiaru K");
 
+	if ((first_waiting_count = malloc(sizeof(int) * K)) == NULL)
+		syserr("Nie udalo sie zaalokowac tablicy 'first_waiting_count' rozmiaru K");
+
 	if ((waiting_for_resource_cond = malloc(sizeof(pthread_cond_t) * K)) == NULL)
 		syserr("Nie udalo sie zaalokowac tablicy 'waiting_for_resource_cond' rozmiaru K");
 
+	if ((first_waiting_cond = malloc(sizeof(pthread_cond_t) * K)) == NULL)
+		syserr("Nie udalo sie zaalokowac tablicy 'first_waiting_cond' rozmiaru K");
+
 	for (int i = 0; i < K; ++i) {
-		resources_count[i] = N;
+		resources_count[i]              = N;
 		waiting_for_resource_count[i]   = 0;
 		waiting_for_partner_pid[i]      = 0;
 		waiting_for_partner_quantity[i] = 0;
+		first_waiting_count[i]          = 0;
+
+		/* Inicjalizacja zmiennych warunkowych */
 		if (pthread_cond_init(&waiting_for_resource_cond[i], 0) != 0)
+			syserr("Blad przy inicjalizacji zmiennej warunkowej");
+
+		if (pthread_cond_init(&first_waiting_cond[i], 0) != 0)
 			syserr("Blad przy inicjalizacji zmiennej warunkowej");
 	}
 
 	/* Tworzenie kolejek komunikatow */
 	fprintf(stderr, "%s\n", "Serwer tworzy kolejki.");
 
-	if ((request_msq_id = msgget(REQUEST_Q_KEY, 0600 | IPC_CREAT | IPC_EXCL)) == -1) {
-		free_memory();
+	if ((request_msq_id = msgget(REQUEST_Q_KEY, 0600 | IPC_CREAT | IPC_EXCL)) == -1)
 		syserr("Nie mozna utworzyc kolejki zadan.");
-	}
 
 	if ((release_msq_id = msgget(RELEASE_Q_KEY, 0600 | IPC_CREAT | IPC_EXCL)) == -1) {
-		free_memory();
 		msgctl(request_msq_id, IPC_RMID, 0);
 		syserr("Nie mozna utworzyc kolejki wiad. o zwolnieniach zasobow.");
 	}
 
 	if ((permission_msq_id = msgget(PERMISSION_Q_KEY, 0600 | IPC_CREAT | IPC_EXCL)) == -1) {
-		free_memory();
 		msgctl(request_msq_id, IPC_RMID, 0);
 		msgctl(release_msq_id, IPC_RMID, 0);
 		syserr("Nie mozna utworzyc kolejki zezwolen.");
 	}
 
-	/* Po zakonczeniu tej procedury wszystkie zasoby sa zainicjalizowane */
-
 	if (signal(SIGINT, exit_server) == SIG_ERR)
 		system_error("signal");
+
+	/* Po zakonczeniu tej procedury wszystkie zasoby sa zainicjalizowane */
 }
 
 /* Watek obslugujacy pare klientow ================================ */
@@ -204,18 +216,39 @@ void * thread(void * _args) {
 
 	fprintf(stderr, "Watek dla procesow %d i %d zostal utworzony (typ x ile: %dx%d)\n", pid1, pid2, res_type, res_quantity);
 
-	/* Warunek na czekanie */
-	if((res_quantity > resources_count[res_type]) || (waiting_for_resource_count[res_type] > 0)) {
+	/* Czekam na opuszczenie kolejki przez pierwszego czekajacego *
+	 * Warunek na czekanie:                                       */
+	if (
+		(waiting_for_resource_count[res_type] > 0) || /* => Ktos juz czeka na swoja kolej        */
+		(       first_waiting_count[res_type] > 0)    /* => Ktos juz czeka na dostepnosc zasobow */
+	) {
+		/* Byji juz inni czekajacy, wiec bezwarunkowo usypiam i czekam, az ktos mnie obudzi      */
+		++waiting_for_resource_count[res_type];
+		pthread_cond_wait(&waiting_for_resource_cond[res_type], &mutex);
+		--waiting_for_resource_count[res_type];
 
-		while(res_quantity > resources_count[res_type]) {
+		/* Ktos mnie obudzil, ale przedtem mogl wejsc inny watek, zatem czekam, az kolejka na    *
+		 * ktorej pierwszy watek czeka na dostepnosc zasobow bedzie rzeczywiscie pusta.          */
+		while (first_waiting_count[res_type] > 0) {
 			++waiting_for_resource_count[res_type];
-
 			pthread_cond_wait(&waiting_for_resource_cond[res_type], &mutex);
-
 			--waiting_for_resource_count[res_type];
 		}
-
 	}
+	
+	/* Jesli nie ma dosc zasobow, czekam */
+
+	while (res_quantity > resources_count[res_type]) {
+		++first_waiting_count[res_type];
+		pthread_cond_wait(&first_waiting_cond[res_type], &mutex);
+		--first_waiting_count[res_type];
+	}
+
+	/* Pierwszy watek zwalnia miejsce, zatem budzi kolejnego */
+	if (pthread_cond_signal(&waiting_for_resource_cond[res_type]) != 0)
+    	system_error("Nie mozna wyslac sygnalu.");
+
+	/* Jest dosc zasobow */
 
 	resources_count[res_type] -= res_quantity;
 
@@ -267,7 +300,8 @@ void * thread(void * _args) {
 
 	resources_count[res_type] += res_quantity;
 
-    if (pthread_cond_signal(&waiting_for_resource_cond[res_type]) != 0)
+	/* Budze watek, ktory mogl czekac na zasoby */
+    if (pthread_cond_signal(&first_waiting_cond[res_type]) != 0)
     	system_error("Nie mozna wyslac sygnalu.");
 
 	if (pthread_mutex_unlock(&mutex) != 0)
