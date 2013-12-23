@@ -79,11 +79,13 @@ void exit_server(int sig) {
 /* Fukcje zwalniajace zasoby i konczace dzialanie *
  * serwera 'wyjatkowo'.                           */
 void fatal_error(const char * error_message) {
+	/*state = CLOSING;*/
 	free_resources();
 	fatal(error_message);
 }
 
 void system_error(const char * error_message) {
+	/* state = CLOSING; */
 	free_resources();
 	syserr(error_message);
 }
@@ -156,6 +158,15 @@ void init_server() {
 	/* Po zakonczeniu tej procedury wszystkie zasoby sa zainicjalizowane */
 }
 
+/* Procedura konczy w razie potrzeby dzialanie watku */
+/*void exit_point(int res_type) {
+	if (state == CLOSING) {
+		pthread_cond_signal(&mon.rest[what]);
+		pthread_mutex_unlock(&mon.lock);
+		pthread_exit(NULL);
+	}
+}*/
+
 /* Watek obslugujacy pare klientow ================================ */
 
 void * thread(void * _args) {
@@ -169,6 +180,8 @@ void * thread(void * _args) {
 	if (pthread_mutex_lock(&mutex) != 0)
 		system_error("Nie mozna zablokowac mutexa.");
 
+	/*exit_point(res_type);*/
+
 	/* Czekam na opuszczenie kolejki przez pierwszego czekajacego *
 	 * Warunek na czekanie:                                       */
 	if (
@@ -180,21 +193,27 @@ void * thread(void * _args) {
 		pthread_cond_wait(&waiting_for_resource_cond[res_type], &mutex);
 		--waiting_for_resource_count[res_type];
 
+		/*exit_point(res_type);*/
+
 		/* Ktos mnie obudzil, ale przedtem mogl wejsc inny watek, zatem czekam, az kolejka na    *
 		 * ktorej pierwszy watek czeka na dostepnosc zasobow bedzie rzeczywiscie pusta.          */
 		while (first_waiting_count[res_type] > 0) {
 			++waiting_for_resource_count[res_type];
 			pthread_cond_wait(&waiting_for_resource_cond[res_type], &mutex);
 			--waiting_for_resource_count[res_type];
+
+			/*exit_point(res_type);*/
 		}
 	}
-	
+
 	/* Jesli nie ma dosc zasobow, czekam */
 
 	while (res_quantity > resources_count[res_type]) {
 		++first_waiting_count[res_type];
 		pthread_cond_wait(&first_waiting_cond[res_type], &mutex);
 		--first_waiting_count[res_type];
+
+		/*exit_point(res_type);*/
 	}
 
 	/* Pierwszy watek zwalnia miejsce, zatem budzi kolejnego */
@@ -245,6 +264,8 @@ void * thread(void * _args) {
 
 	if (msgrcv(release_msq_id, &mr, MSG_RELEASE_SIZE, (long) pid2, 0) < 0)
 		system_error("Nie powiodlo sie odczytanie wiadomosci o zwolnieniu zasobow.");
+
+	/*exit_point(res_type);*/
 
 	/* Zasoby zwolnione */
 
@@ -311,6 +332,7 @@ int main(int argc, char const *argv[]) {
 
 			/* Wylaczam obsluge sygnalu SIGINT w watku. */
 			sigset_t set;
+			sigemptyset(&set);
 			sigaddset(&set, SIGINT);
 
 			if (pthread_sigmask(SIG_BLOCK, &set, NULL) != 0)
