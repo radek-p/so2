@@ -32,7 +32,7 @@ typedef struct {
 
 } Msg_release;
 
-#define MSG_RELEASE_SIZE (2 * sizeof(int))
+#define MSG_RELEASE_SIZE (0)
 
 /* Wiadomosc do klienta o dostepnosci zasobow */
 typedef struct {

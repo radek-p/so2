@@ -17,6 +17,8 @@
 
 #define MAX_K 99
 
+#define UNUSED(x) (void)(x)
+
 /* Struktura przekazywana nowo tworzonemu watkowi: ================ */
 
 typedef struct {
@@ -68,8 +70,8 @@ void free_resources() {
 
 /* Zwalnia zasoby i konczy dzialanie serwera pod wplywam sygnalu */
 void exit_server(int sig) {
+	UNUSED(sig);
 	state = CLOSING;
-	fprintf(stderr, "Serwer konczy prace wskutek sygnalu %d.\n", sig);
 	free_resources();
 	exit(0);
 }
@@ -167,8 +169,6 @@ void * thread(void * _args) {
 	if (pthread_mutex_lock(&mutex) != 0)
 		system_error("Nie mozna zablokowac mutexa.");
 
-	fprintf(stderr, "Watek dla procesow %d i %d zostal utworzony (typ x ile: %dx%d)\n", pid1, pid2, res_type, res_quantity);
-
 	/* Czekam na opuszczenie kolejki przez pierwszego czekajacego *
 	 * Warunek na czekanie:                                       */
 	if (
@@ -240,10 +240,10 @@ void * thread(void * _args) {
 
 	Msg_release mr;
 
-	if (msgrcv(release_msq_id, &mr, MSG_RELEASE_SIZE, (long) pid1, 0) <= 0)
+	if (msgrcv(release_msq_id, &mr, MSG_RELEASE_SIZE, (long) pid1, 0) < 0)
 		system_error("Nie powiodlo sie odczytanie wiadomosci o zwolnieniu zasobow.");
 
-	if (msgrcv(release_msq_id, &mr, MSG_RELEASE_SIZE, (long) pid2, 0) <= 0)
+	if (msgrcv(release_msq_id, &mr, MSG_RELEASE_SIZE, (long) pid2, 0) < 0)
 		system_error("Nie powiodlo sie odczytanie wiadomosci o zwolnieniu zasobow.");
 
 	/* Zasoby zwolnione */
@@ -284,12 +284,10 @@ int main(int argc, char const *argv[]) {
 		system_error("Error while setting detach state to PTHREAD_CREATE_DETACHED.");
 
 	for(;;) {
-		fprintf(stderr, "Czekam na wiadomosc.\n");
 
-		if (msgrcv(request_msq_id, &m1, MSG_REQUEST_SIZE, 0L, 0) <= 0)
+		if (msgrcv(request_msq_id, &m1, MSG_REQUEST_SIZE, 0L, 0) < 0)
 			system_error("Nie powiodlo sie odbieranie wiadomosci.");
 
-		fprintf(stderr, "Otrzymano wiadomosc PID: %ld, typ: %d, ile: %d\n", m1.msg_type, m1.res_type, m1.res_quantity);
 		/* Mutex nie jest potrzebny, tylko watek glowny *
 		 * bedzie odwolywal sie do tych zmiennych       */
 
@@ -303,7 +301,6 @@ int main(int argc, char const *argv[]) {
 			waiting_for_partner_quantity[m1.res_type] = m1.res_quantity;
 		}
 		else {
-			fprintf(stderr, "PID1: %d, PID2: %d, ile: %d\n", waiting_for_partner_pid[m1.res_type], (pid_t) m1.msg_type, waiting_for_partner_quantity[m1.res_type] + m1.res_quantity);
 			args = malloc(sizeof(ThreadArgs));
 			args->pid1 = waiting_for_partner_pid[m1.res_type];
 			args->pid2 = (pid_t) m1.msg_type;
