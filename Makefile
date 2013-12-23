@@ -5,8 +5,8 @@
 # ze strony p. Marcina Engela
 
 CC          := gcc
-CFLAGS      := -Wall -Wextra -std=c99 -pedantic -D_SVID_SOURCE -pthread
-LDFLAGS     := -Wall -Wextra -std=c99 -pedantic -pthread
+CFLAGS      := -Wall -Wextra -std=gnu99 -pthread
+LDFLAGS     := -Wall -Wextra -std=gnu99 -pthread
 
 # pliki zrodlowe
 SOURCES     := $(wildcard *.c)

@@ -4,13 +4,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <fcntl.h>
 #include <string.h>
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
-#include <pthread.h>
 
 #include "message.h"
 #include "err.h"
@@ -309,8 +309,18 @@ int main(int argc, char const *argv[]) {
 
 			/* Tworzenie watku */
 
+			/* Wylaczam obsluge sygnalu SIGINT w watku. */
+			sigset_t set;
+			sigaddset(&set, SIGINT);
+
+			if (pthread_sigmask(SIG_BLOCK, &set, NULL) != 0)
+				system_error("pthread_sigmask SIG_BLOCK");
+
 			if (pthread_create(&thread_descr, &thread_attr, thread, args) != 0)
 				system_error("Blad podczas tworzenia watku.");
+
+			if (pthread_sigmask(SIG_UNBLOCK, &set, NULL) != 0)
+				system_error("pthread_sigmask SIG_UNBLOCK");
 
 			/* Zwalniam miejsce w tablicy czekajacych na partnera. */
 			waiting_for_partner_pid[m1.res_type] = 0;

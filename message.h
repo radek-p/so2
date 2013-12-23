@@ -6,14 +6,14 @@
 
 #include <sys/types.h>
 
-/* Klucze kolejek komunikatow do serwera */
+/* Klucze kolejek komunikatow do serwera          */
 #define	REQUEST_Q_KEY 1928375L
 #define	RELEASE_Q_KEY 1928376L
 
-/* Klucz kolejki komunikatow do klienta */
+/* Klucz kolejki komunikatow do klienta           */
 #define	PERMISSION_Q_KEY 1928377L
 
-/* Prosba do serwera o przydzielenie zasobow */
+/* Prosba do serwera o przydzielenie zasobow      */
 typedef struct {
 
 	long  msg_type;     /* PID klienta            */
@@ -34,7 +34,7 @@ typedef struct {
 
 #define MSG_RELEASE_SIZE (0)
 
-/* Wiadomosc do klienta o dostepnosci zasobow */
+/* Wiadomosc do klienta o dostepnosci zasobow     */
 typedef struct {
 
 	long  msg_type;     /* typ == PID adresata    */
