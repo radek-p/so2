@@ -15,6 +15,8 @@
 #include "message.h"
 #include "err.h"
 
+#define MAX_K 99
+
 /* Struktura przekazywana nowo tworzonemu watkowi: ================ */
 
 typedef struct {
@@ -40,72 +42,47 @@ int request_msq_id;
 int release_msq_id;
 int permission_msq_id;
 
-/* Tablice rozmiaru K */
-int   * resources_count;
-int   * waiting_for_resource_count;
-int   * first_waiting_count;
-
-/* tablice zapisujace informacje o procesie zadajacym *
- * zasobow danego typu czekajacym na partnera.        */
-pid_t * waiting_for_partner_pid;
-int   * waiting_for_partner_quantity;
-
 /* Mutex */
 pthread_mutex_t mutex;
 
+/* Tablice rozmiaru K */
+int   resources_count[MAX_K];
+int   waiting_for_resource_count[MAX_K];
+int   first_waiting_count[MAX_K];
+
+pid_t waiting_for_partner_pid[MAX_K];
+int   waiting_for_partner_quantity[MAX_K];
+
 /* Zmienne warunkowe */
-pthread_cond_t * waiting_for_resource_cond;
-pthread_cond_t * first_waiting_cond;
+pthread_cond_t waiting_for_resource_cond[MAX_K];
+pthread_cond_t first_waiting_cond[MAX_K];
 
 /* Procedury pomocnicze: ========================================== */
 
-/* Zwalnia zaalokowana pamiec */
-void free_memory() {
-	free(resources_count);
-	free(waiting_for_resource_count);
-	free(waiting_for_partner_pid);
-	free(waiting_for_partner_quantity);
-	free(waiting_for_resource_cond);
-	free(first_waiting_count);
-	free(first_waiting_cond);
-}
-
 /* Usuwa kolejki komunikatow */
 void free_resources() {
-	if (msgctl(request_msq_id, IPC_RMID, 0) == -1)
-		syserr("Nie mozna usunac kolejki zadan.");
-
-	if (msgctl(release_msq_id, IPC_RMID, 0) == -1)
-		syserr("Nie mozna usunac kolejki wiad. o zwolnieniach zasobow.");
-
-	if (msgctl(permission_msq_id, IPC_RMID, 0) == -1)
-		syserr("Nie mozna usunac kolejki zezwolen.");
-}
-
-/* Zwalnianie zasoby i przygotowuje serwer do zakonczenia pracy     *
- * Moze byc wywolywana dopiero po zakonczeniu procedury init_server */
-void clean_up() {
-	free_memory();
-	free_resources();
+	msgctl(   request_msq_id, IPC_RMID, 0);
+	msgctl(   release_msq_id, IPC_RMID, 0);
+	msgctl(permission_msq_id, IPC_RMID, 0);
 }
 
 /* Zwalnia zasoby i konczy dzialanie serwera pod wplywam sygnalu */
 void exit_server(int sig) {
 	state = CLOSING;
 	fprintf(stderr, "Serwer konczy prace wskutek sygnalu %d.\n", sig);
-	clean_up();
+	free_resources();
 	exit(0);
 }
 
 /* Fukcje zwalniajace zasoby i konczace dzialanie *
  * serwera 'wyjatkowo'.                           */
 void fatal_error(const char * error_message) {
-	clean_up();
+	free_resources();
 	fatal(error_message);
 }
 
 void system_error(const char * error_message) {
-	clean_up();
+	free_resources();
 	syserr(error_message);
 }
 
@@ -135,33 +112,10 @@ void init_server() {
 
 	state = DEFAULT;
 
-	/* Inicjalizacja mutexow i zmiennych warunkowych */
+	/* Inicjalizacja mutexa, tablic i zmiennych warunkowych */
 
 	if (pthread_mutex_init(&mutex, 0) != 0)
 		syserr("Nie udalo sie zainicjalizowac mutexa.");
-
-	/* Alokowanie pamieci */
-
-	if ((resources_count = malloc(sizeof(int) * K)) == NULL)
-		syserr("Nie udalo sie zaalokowac tablicy 'resources_count' rozmiaru K");
-
-	if ((waiting_for_partner_pid = malloc(sizeof(pid_t) * K)) == NULL)
-		syserr("Nie udalo sie zaalokowac tablicy 'waiting_for_partner_pid' rozmiaru K");
-
-	if ((waiting_for_partner_quantity = malloc(sizeof(int) * K)) == NULL)
-		syserr("Nie udalo sie zaalokowac tablicy 'waiting_for_partner_quantity' rozmiaru K");
-
-	if ((waiting_for_resource_count = malloc(sizeof(int) * K)) == NULL)
-		syserr("Nie udalo sie zaalokowac tablicy 'waiting_for_resource_count' rozmiaru K");
-
-	if ((first_waiting_count = malloc(sizeof(int) * K)) == NULL)
-		syserr("Nie udalo sie zaalokowac tablicy 'first_waiting_count' rozmiaru K");
-
-	if ((waiting_for_resource_cond = malloc(sizeof(pthread_cond_t) * K)) == NULL)
-		syserr("Nie udalo sie zaalokowac tablicy 'waiting_for_resource_cond' rozmiaru K");
-
-	if ((first_waiting_cond = malloc(sizeof(pthread_cond_t) * K)) == NULL)
-		syserr("Nie udalo sie zaalokowac tablicy 'first_waiting_cond' rozmiaru K");
 
 	for (int i = 0; i < K; ++i) {
 		resources_count[i]              = N;
@@ -179,7 +133,6 @@ void init_server() {
 	}
 
 	/* Tworzenie kolejek komunikatow */
-	fprintf(stderr, "%s\n", "Serwer tworzy kolejki.");
 
 	if ((request_msq_id = msgget(REQUEST_Q_KEY, 0600 | IPC_CREAT | IPC_EXCL)) == -1)
 		syserr("Nie mozna utworzyc kolejki zadan.");
